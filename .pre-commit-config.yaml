@@ -36,8 +36,12 @@ repos:
     hooks:
       - id: gitleaks
 
-  # Enabled in c2 once the Dockerfile lands.
-  # - repo: https://github.com/hadolint/hadolint
-  #   rev: v2.14.0
-  #   hooks:
-  #     - id: hadolint-docker
+  # Hadolint: lints the Dockerfile. The `hadolint` (system) hook id is used
+  # instead of `hadolint-docker` so the hook runs against the locally-installed
+  # hadolint binary and does not require Docker to be running (Docker is not
+  # always available on CI runners and adds startup overhead locally).
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.14.0
+    hooks:
+      - id: hadolint
+        files: ^Dockerfile$

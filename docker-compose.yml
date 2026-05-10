@@ -1,0 +1,30 @@
+# Modern Compose Specification — no top-level `version:` key (deprecated since
+# Compose v2 and emits a warning in 2026 releases).
+#
+# Local development entry point. Production runs on Azure Container Apps and
+# does NOT use this file — see docs/DEPLOY.md (lands in c16).
+#
+# Secrets policy: the secrets file at `${HOME}/.config/wa-voicenote/secrets.env`
+# is mounted read-only into the container at `/run/secrets/wa-voicenote.env`.
+# The application reads it via the `ENV_FILE` env var (wiring lands in c4).
+# The secrets file is never copied into the image and never committed.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wa-voicenote-triage:dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - "${HOME}/.config/wa-voicenote/secrets.env:/run/secrets/wa-voicenote.env:ro"
+    environment:
+      ENV_FILE: /run/secrets/wa-voicenote.env
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped

@@ -1,0 +1,25 @@
+# Hadolint configuration — https://github.com/hadolint/hadolint
+#
+# Failure threshold set to `warning` so info-level findings do not break the
+# build but anything worth acting on still fails CI.
+
+failure-threshold: warning
+
+trusted-registries:
+  - ghcr.io
+  - docker.io
+
+ignored:
+  # DL3008 — Pin versions in apt-get install.
+  # Reason: we use python:3.12-slim (Debian) as the base. Pinning every apt
+  # package to a specific Debian package version blocks routine security
+  # updates that the base image ships, and the pins go stale within weeks of
+  # each Debian point release. We mitigate the underlying risk by combining
+  # `apt-get update` and `apt-get install` in a single RUN and pinning the
+  # base image tag instead.
+  - DL3008
+
+  # DL3013 — Pin versions in pip.
+  # Reason: this project uses `uv` (not pip) with a fully pinned `uv.lock`.
+  # Every Python dependency is already pinned by the lockfile.
+  - DL3013

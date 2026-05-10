@@ -1,4 +1,4 @@
-.PHONY: install lint format format-check type test ci run clean
+.PHONY: install lint format format-check type test dockerlint build ci run clean
 
 UV ?= uv
 
@@ -21,7 +21,13 @@ type:
 test:
 	$(UV) run pytest --cov=src/wa_voicenote --cov-report=term-missing
 
-ci: lint format-check type test
+dockerlint:
+	hadolint Dockerfile
+
+build:
+	docker build -t wa-voicenote-triage:dev .
+
+ci: lint format-check type test dockerlint
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage coverage.xml htmlcov dist build *.egg-info
