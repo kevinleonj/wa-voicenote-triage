@@ -1,0 +1,8 @@
+# Bootstrap .gitignore — full version comes in c1
+.env
+.env.*
+!.env.example
+secrets*
+.DS_Store
+__pycache__/
+.venv/
