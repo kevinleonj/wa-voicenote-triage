@@ -1,8 +1,49 @@
-# Bootstrap .gitignore — full version comes in c1
+# Python build / install artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets & env files (never commit)
 .env
 .env.*
 !.env.example
-secrets*
+secrets
+secrets.*
+secrets/
+*.pem
+*.key
+*.pfx
+*.p12
+
+# OS noise
 .DS_Store
-__pycache__/
-.venv/
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
