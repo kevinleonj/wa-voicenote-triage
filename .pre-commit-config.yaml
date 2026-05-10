@@ -1,0 +1,43 @@
+# Pre-commit hook configuration.
+# See https://pre-commit.com for usage and documentation.
+#
+# All revs are pinned to released tags. Do NOT use branch names (main/master).
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        args: ["--strict"]
+        additional_dependencies:
+          - pytest
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # Enabled in c2 once the Dockerfile lands.
+  # - repo: https://github.com/hadolint/hadolint
+  #   rev: v2.14.0
+  #   hooks:
+  #     - id: hadolint-docker
