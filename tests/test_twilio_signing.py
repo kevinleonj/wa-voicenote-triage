@@ -224,6 +224,31 @@ async def test_dependency_uses_forwarded_proto_and_host() -> None:
     assert response.status_code == 200
 
 
+async def test_dependency_uses_forwarded_proto_with_host_header_only() -> None:
+    """Container Apps shape: X-Forwarded-Proto set, no X-Forwarded-Host.
+
+    Container Apps' Envoy ingress sets ``X-Forwarded-Proto: https`` but does
+    NOT set ``X-Forwarded-Host`` — the public host arrives via the standard
+    ``Host`` header. The dependency must use Proto from forwarded headers and
+    Host from the regular Host header to reconstruct the public URL.
+    """
+    # Recompute the canonical signature against https://mycompany.com (no
+    # X-Forwarded-Host); the Host header carries "mycompany.com".
+    app = _build_app(CANONICAL_TOKEN)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        response = await ac.post(
+            "/myapp.php?foo=1&bar=2",
+            data=CANONICAL_PARAMS,
+            headers={
+                "X-Twilio-Signature": CANONICAL_SIGNATURE,
+                "X-Forwarded-Proto": "https",
+                "Host": "mycompany.com",
+            },
+        )
+    assert response.status_code == 200
+
+
 async def test_dependency_403_without_forwarded_proto_uses_request_url() -> None:
     """Without forwarded headers, the dependency falls back to request.url.
 
