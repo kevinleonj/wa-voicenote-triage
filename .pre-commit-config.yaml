@@ -33,6 +33,7 @@ repos:
           - pytest
           - pydantic>=2.10
           - pydantic-settings>=2.6
+          - fastapi>=0.118
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
