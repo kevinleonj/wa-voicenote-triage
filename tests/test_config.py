@@ -157,7 +157,42 @@ def test_http_timeout_default(valid_settings_env: None) -> None:  # noqa: ARG001
     from wa_voicenote.config import Settings
 
     s = Settings()
-    assert s.http_timeout_seconds == 45
+    # Bumped to 180s in c14 hotfix: AOAI on 5+ minute audio can take 60-90s.
+    # Override via HTTP_TIMEOUT_SECONDS env var.
+    assert s.http_timeout_seconds == 180
+
+
+def test_aoai_max_tokens_default(valid_settings_env: None) -> None:  # noqa: ARG001
+    from wa_voicenote.config import Settings
+
+    s = Settings()
+    # Bumped to 4000 in c14 hotfix to fit 3-minute voice-note transcripts.
+    # Override via AOAI_MAX_TOKENS env var.
+    assert s.aoai_max_tokens == 4000
+
+
+def test_aoai_max_tokens_override(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ARG001
+    for key, value in REQUIRED_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("AOAI_MAX_TOKENS", "1500")
+    from wa_voicenote.config import Settings, get_settings
+
+    get_settings.cache_clear()
+    s = Settings()
+    assert s.aoai_max_tokens == 1500
+
+
+def test_aoai_max_tokens_must_be_positive(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ARG001
+    for key, value in REQUIRED_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("AOAI_MAX_TOKENS", "0")
+    from pydantic import ValidationError
+
+    from wa_voicenote.config import Settings, get_settings
+
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_language_policy_default(valid_settings_env: None) -> None:  # noqa: ARG001

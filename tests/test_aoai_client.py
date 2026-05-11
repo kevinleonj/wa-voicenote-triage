@@ -137,7 +137,9 @@ async def test_builds_correct_payload() -> None:
 
     body = captured["body"]
     assert body["modalities"] == ["text"]
-    assert body["max_tokens"] == 200
+    # Default from AoaiClient; bumped to 4000 in c14 hotfix to fit 3-minute
+    # voice-note transcripts. Caller (main.py) overrides from Settings.
+    assert body["max_tokens"] == 4000
 
     messages = body["messages"]
     assert messages[0]["role"] == "system"
