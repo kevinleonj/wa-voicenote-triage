@@ -28,8 +28,11 @@ repos:
     hooks:
       - id: mypy
         args: ["--strict"]
+        files: ^src/
         additional_dependencies:
           - pytest
+          - pydantic>=2.10
+          - pydantic-settings>=2.6
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
