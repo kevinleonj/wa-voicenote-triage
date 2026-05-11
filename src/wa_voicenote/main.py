@@ -192,6 +192,21 @@ def create_app(lifespan_override: object | None = None) -> FastAPI:
 def _register_routes(target: FastAPI) -> None:
     """Attach /health and /webhook/whatsapp to ``target``."""
 
+    # Twilio enforces a 15s webhook timeout. On Container Apps cold starts,
+    # the client routinely disconnects before we finish reading the form body,
+    # which raises ``starlette.requests.ClientDisconnect`` deep inside the
+    # signature dependency. Returning empty TwiML 200 lets Twilio retry
+    # cleanly; the state-repo SID ring absorbs the retry as a duplicate.
+    from starlette.requests import ClientDisconnect
+
+    @target.exception_handler(ClientDisconnect)
+    async def _on_client_disconnect(
+        _request: Request,
+        _exc: ClientDisconnect,
+    ) -> Response:
+        get_logger("webhook").warning("client_disconnect")
+        return Response(content=_EMPTY_TWIML, media_type="application/xml")
+
     @target.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
