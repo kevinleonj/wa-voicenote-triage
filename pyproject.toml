@@ -7,8 +7,10 @@ requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }
 authors = [{ name = "Kevin Leon" }]
 dependencies = [
+    "aiohttp>=3.10,<4",
     "azure-data-tables>=12.5,<13",
     "azure-identity>=1.19,<2",
+    "azure-storage-blob>=12.24,<13",
     "fastapi>=0.118,<1",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.6,<3",
