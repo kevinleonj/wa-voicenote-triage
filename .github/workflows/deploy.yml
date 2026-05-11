@@ -117,16 +117,17 @@ jobs:
             --name "${{ env.CONTAINER_APP }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --query "sort_by([], &properties.createdTime)[-1].name" -o tsv)
+          # The revision exposes its own FQDN via properties.fqdn — read it
+          # directly instead of trying to construct it from the base FQDN.
+          revision_fqdn=$(az containerapp revision show \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --revision "$new_revision" \
+            --query properties.fqdn -o tsv)
           base_fqdn=$(az containerapp show \
             --name "${{ env.CONTAINER_APP }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --query properties.configuration.ingress.fqdn -o tsv)
-          # Revision-specific hostname: <revision_label>.<base_fqdn>.
-          # When the revision name follows the wa-voicenote--xxxxx pattern, the
-          # revision label is the suffix after the double dash.
-          revision_suffix="${new_revision##*--}"
-          base_suffix="${base_fqdn#*.}"
-          revision_fqdn="${revision_suffix}.${base_suffix}"
           echo "new_revision=$new_revision" >> "$GITHUB_OUTPUT"
           echo "base_fqdn=$base_fqdn" >> "$GITHUB_OUTPUT"
           echo "revision_fqdn=$revision_fqdn" >> "$GITHUB_OUTPUT"
