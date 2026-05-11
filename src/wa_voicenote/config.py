@@ -26,7 +26,15 @@ _DEFAULT_LANGUAGES = ("ES", "EN", "DE")
 _DEFAULT_CONTEXT_TIMEOUT_S = 120
 _DEFAULT_LANGUAGE_POLICY = "match_inbound"
 _DEFAULT_IDEMPOTENCY_RING_SIZE = 100
-_DEFAULT_HTTP_TIMEOUT_S = 45
+# HTTP timeout for outbound calls. AOAI gpt-audio-mini on a 5+ minute voice note
+# can take 60-90s end-to-end, so we keep this generous; tighter timeouts on
+# Twilio sends and storage ops are not separately tunable yet.
+_DEFAULT_HTTP_TIMEOUT_S = 180
+# Max completion tokens for the AOAI call. 4000 covers ~10 minutes of audio
+# transcript + summary + suggested reply in any of our expected languages.
+# A 3-minute WhatsApp voice note transcript alone is ~700 tokens; under-budget
+# truncates JSON mid-string and breaks parsing.
+_DEFAULT_AOAI_MAX_TOKENS = 4000
 _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_OTEL_SERVICE_NAME = "wa-voicenote-triage"
 _DEFAULT_ENV_NAME = "local"
@@ -91,6 +99,7 @@ class Settings(BaseSettings):
     language_policy: str = Field(default=_DEFAULT_LANGUAGE_POLICY)
     idempotency_ring_size: int = Field(default=_DEFAULT_IDEMPOTENCY_RING_SIZE)
     http_timeout_seconds: int = Field(default=_DEFAULT_HTTP_TIMEOUT_S)
+    aoai_max_tokens: int = Field(default=_DEFAULT_AOAI_MAX_TOKENS)
     log_level: str = Field(default=_DEFAULT_LOG_LEVEL)
     otel_service_name: str = Field(default=_DEFAULT_OTEL_SERVICE_NAME)
     env_name: str = Field(default=_DEFAULT_ENV_NAME)
@@ -168,6 +177,7 @@ class Settings(BaseSettings):
         "context_timeout_seconds",
         "idempotency_ring_size",
         "http_timeout_seconds",
+        "aoai_max_tokens",
     )
     @classmethod
     def _must_be_positive(cls, value: int) -> int:

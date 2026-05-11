@@ -153,6 +153,7 @@ def _build_aoai_client(
             system_prompt=settings.llm_system_prompt,
             http_timeout_seconds=float(settings.http_timeout_seconds),
             api_key=settings.azure_openai_api_key,
+            max_tokens=settings.aoai_max_tokens,
         )
 
     async def token_provider() -> str:
@@ -166,6 +167,7 @@ def _build_aoai_client(
         system_prompt=settings.llm_system_prompt,
         http_timeout_seconds=float(settings.http_timeout_seconds),
         token_provider=token_provider,
+        max_tokens=settings.aoai_max_tokens,
     )
 
 

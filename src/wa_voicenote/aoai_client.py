@@ -22,7 +22,7 @@ from typing import cast
 import httpx
 from pydantic import SecretStr
 
-_MAX_TOKENS = 200
+_DEFAULT_MAX_TOKENS = 4000
 _HTTP_ERROR_THRESHOLD = 400
 
 
@@ -81,6 +81,7 @@ class AoaiClient:
         api_key: SecretStr | None = None,
         token_provider: Callable[[], Awaitable[str]] | None = None,
         http_client: httpx.AsyncClient | None = None,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> None:
         if (api_key is None) == (token_provider is None):
             raise ValueError(
@@ -92,6 +93,7 @@ class AoaiClient:
         self._api_version = api_version
         self._system_prompt = system_prompt
         self._timeout = http_timeout_seconds
+        self._max_tokens = max_tokens
         self._api_key = api_key
         self._token_provider = token_provider
         self._http = http_client  # if None, create a transient client per request
@@ -141,7 +143,7 @@ class AoaiClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            "max_tokens": _MAX_TOKENS,
+            "max_tokens": self._max_tokens,
         }
 
     # ---- Transport --------------------------------------------------------
