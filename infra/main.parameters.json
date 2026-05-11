@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "swedencentral" },
+    "projectTag": { "value": "wa-voicenote" },
+    "storageAccountName": { "value": "stwavoicenote" },
+    "storageTableName": { "value": "convstate" },
+    "storageContainerName": { "value": "audio-staging" },
+    "logAnalyticsName": { "value": "law-wa-voicenote" },
+    "appInsightsName": { "value": "appi-wa-voicenote" },
+    "aoaiAccountName": { "value": "aoai-wa-voicenote" },
+    "aoaiDeploymentName": { "value": "gpt-audio-mini" },
+    "aoaiModelName": { "value": "gpt-audio-mini" },
+    "aoaiModelVersion": { "value": "2025-12-15" },
+    "aoaiSkuName": { "value": "GlobalStandard" },
+    "aoaiSkuCapacity": { "value": 30 },
+    "containerAppsEnvName": { "value": "cae-wa-voicenote" }
+  }
+}
