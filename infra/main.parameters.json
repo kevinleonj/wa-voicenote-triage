@@ -15,9 +15,6 @@
     "aoaiModelVersion": { "value": "2025-12-15" },
     "aoaiSkuName": { "value": "GlobalStandard" },
     "aoaiSkuCapacity": { "value": 30 },
-    "containerAppsEnvName": { "value": "cae-wa-voicenote" },
-    "containerAppName": { "value": "wa-voicenote" },
-    "minReplicas": { "value": 0 },
-    "maxReplicas": { "value": 2 }
+    "containerAppsEnvName": { "value": "cae-wa-voicenote" }
   }
 }

@@ -96,22 +96,40 @@ jobs:
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --image "${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
-      - name: Resolve Container App FQDN
-        id: fqdn
+      - name: Resolve new revision and revision-specific FQDN
+        id: revision
         run: |
-          fqdn=$(az containerapp show \
+          # Pick the most-recently-created revision (the one we just rolled out).
+          new_revision=$(az containerapp revision list \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query "sort_by([], &properties.createdTime)[-1].name" -o tsv)
+          base_fqdn=$(az containerapp show \
             --name "${{ env.CONTAINER_APP }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --query properties.configuration.ingress.fqdn -o tsv)
-          echo "fqdn=$fqdn" >> "$GITHUB_OUTPUT"
+          # Revision-specific hostname: <revision_label>.<base_fqdn>.
+          # When the revision name follows the wa-voicenote--xxxxx pattern, the
+          # revision label is the suffix after the double dash.
+          revision_suffix="${new_revision##*--}"
+          base_suffix="${base_fqdn#*.}"
+          revision_fqdn="${revision_suffix}.${base_suffix}"
+          echo "new_revision=$new_revision" >> "$GITHUB_OUTPUT"
+          echo "base_fqdn=$base_fqdn" >> "$GITHUB_OUTPUT"
+          echo "revision_fqdn=$revision_fqdn" >> "$GITHUB_OUTPUT"
+          echo "New revision: $new_revision"
+          echo "Revision FQDN: $revision_fqdn"
 
-      - name: Smoke test /health
+      - name: Smoke test /health on the new revision
         id: smoke
         run: |
-          # Wait for the new revision to come up; up to 5 attempts at 15s intervals.
-          for i in 1 2 3 4 5; do
-            if curl --fail --silent --max-time 10 \
-                "https://${{ steps.fqdn.outputs.fqdn }}/health"; then
+          # Probe the revision-specific hostname so we don't accidentally pass
+          # against the old revision while the new one is still cold-starting.
+          # 10 attempts x 15s = up to 150s for cold-start + image pull.
+          url="https://${{ steps.revision.outputs.revision_fqdn }}/health"
+          echo "Probing $url"
+          for i in $(seq 1 10); do
+            if curl --fail --silent --max-time 10 "$url"; then
               echo ""
               echo "smoke OK on attempt $i"
               exit 0
@@ -119,7 +137,7 @@ jobs:
             echo "smoke attempt $i failed, retrying..."
             sleep 15
           done
-          echo "smoke test failed after 5 attempts"
+          echo "smoke test failed after 10 attempts"
           exit 1
 
       - name: Rollback on smoke failure

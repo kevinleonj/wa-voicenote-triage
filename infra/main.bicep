@@ -1,19 +1,23 @@
 // wa-voicenote-triage infrastructure as code.
 //
-// Declarative source-of-truth for the resources that were provisioned
-// imperatively at the start of c14. Re-running this deployment is idempotent:
-// existing resources are updated in place when their properties drift from
-// what this file declares.
+// Declarative source-of-truth for the FOUNDATION resources behind the app:
+// Storage account (table + blob + lifecycle), Log Analytics, Application
+// Insights, Azure OpenAI account + model deployment, and the Container Apps
+// Environment.
+//
+// IMPORTANT: The Container App itself is NOT declared here. It is managed
+// imperatively by `az containerapp create` + `az containerapp update` via the
+// deploy workflow. Reason: declaring the Container App in Bicep without ALSO
+// declaring every secret and env var would silently wipe them on any
+// `az deployment group create`. Splitting the Container App out keeps Bicep
+// idempotent and safe to re-run, while the deploy workflow owns the mutable
+// app surface (image tag, env vars, secrets, MI role assignments).
 //
 // Scope: resource group. Deploy with:
 //   az deployment group create \
 //     --resource-group rg-wa-voicenote \
 //     --template-file infra/main.bicep \
 //     --parameters infra/main.parameters.json
-//
-// Secrets are NOT in this file. They live as Container App secrets configured
-// via `az containerapp secret set` (or the workflow). See HANDOFF.md for the
-// list of required secret names.
 
 targetScope = 'resourceGroup'
 
@@ -58,18 +62,6 @@ param aoaiSkuCapacity int = 30
 
 @description('Container Apps Environment name.')
 param containerAppsEnvName string = 'cae-wa-voicenote'
-
-@description('Container App name.')
-param containerAppName string = 'wa-voicenote'
-
-@description('Container App image (tag updated by the deploy workflow on each push to main).')
-param containerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
-
-@description('Min replicas (scale-to-zero supported).')
-param minReplicas int = 0
-
-@description('Max replicas.')
-param maxReplicas int = 2
 
 var commonTags = {
   project: projectTag
@@ -227,94 +219,14 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2024-10-02-preview'
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
-  name: containerAppName
-  location: location
-  tags: commonTags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    managedEnvironmentId: containerAppsEnv.id
-    configuration: {
-      ingress: {
-        external: true
-        targetPort: 8000
-        transport: 'auto'
-        traffic: [
-          {
-            latestRevision: true
-            weight: 100
-          }
-        ]
-      }
-      // Secrets are managed out-of-band via `az containerapp secret set` so
-      // their values never appear in the template or its parameter file.
-      // Listed here as references that the image's env vars consume.
-    }
-    template: {
-      containers: [
-        {
-          name: containerAppName
-          image: containerImage
-          resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
-          }
-        }
-      ]
-      scale: {
-        minReplicas: minReplicas
-        maxReplicas: maxReplicas
-      }
-    }
-  }
-}
-
-// -----------------------------------------------------------------------------
-// Role assignments for Container App system-assigned identity
-// -----------------------------------------------------------------------------
-
-// Built-in role definition IDs
-var aoaiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'              // Cognitive Services OpenAI User
-var tableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'  // Storage Table Data Contributor
-var blobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'   // Storage Blob Data Contributor
-
-resource aoaiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: aoai
-  name: guid(aoai.id, containerApp.id, aoaiUserRoleId)
-  properties: {
-    principalId: containerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', aoaiUserRoleId)
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource tableRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: storage
-  name: guid(storage.id, containerApp.id, tableDataContributorRoleId)
-  properties: {
-    principalId: containerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', tableDataContributorRoleId)
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource blobRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: storage
-  name: guid(storage.id, containerApp.id, blobDataContributorRoleId)
-  properties: {
-    principalId: containerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobDataContributorRoleId)
-    principalType: 'ServicePrincipal'
-  }
-}
+// NOTE: The Container App and its role assignments live outside Bicep — see
+// the header comment for the rationale. Use `az containerapp create` /
+// `az containerapp update` via the deploy workflow.
 
 // -----------------------------------------------------------------------------
 // Outputs
 // -----------------------------------------------------------------------------
 
-output containerAppFqdn string = containerApp.properties.configuration.ingress.fqdn
-output containerAppPrincipalId string = containerApp.identity.principalId
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output aoaiEndpoint string = aoai.properties.endpoint
+output containerAppsEnvId string = containerAppsEnv.id
