@@ -36,6 +36,7 @@ repos:
           - fastapi>=0.118
           - azure-data-tables>=12.5
           - azure-identity>=1.19
+          - azure-storage-blob>=12.24
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
