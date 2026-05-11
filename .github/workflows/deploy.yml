@@ -1,15 +1,13 @@
 # Deploy workflow for wa-voicenote-triage.
 #
-# DEPLOY GATE: real wiring lands in c14 once Azure resources are provisioned.
-# The `if: false` line below disables every deploy run until then. The CI
-# workflow (ci.yml) still runs on every push to main, so main branch protection
-# continues to work normally before c14.
+# Active since c14 (2026-05-11). Builds the image, pushes to GHCR, then
+# rolls the Container App `wa-voicenote` in `rg-wa-voicenote` forward to
+# the new revision. On /health smoke-test failure, rolls back to the
+# previous active revision.
 #
-# When c14 lands:
-#   1. Remove the `if: false` from the job
-#   2. Set repo secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-#   3. Confirm the federated identity credential is bound to this repo + ref=main
-#   4. Confirm the Container App `wa-voicenote` exists in `rg-wa-voicenote`
+# Required repo secrets (set in c14): AZURE_CLIENT_ID, AZURE_TENANT_ID,
+# AZURE_SUBSCRIPTION_ID. OIDC federated identity is bound to ref=main and
+# pull_request contexts of the kevinleonj/wa-voicenote-triage repo.
 
 name: deploy
 
@@ -40,9 +38,6 @@ jobs:
     name: build + push + container app update
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
-    # DEPLOY GATE: see header. This MUST stay `if: false` until c14.
-    if: false
 
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository }}
@@ -84,6 +79,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Capture previous revision for rollback
+        id: previous
+        run: |
+          prev=$(az containerapp revision list \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query "[?properties.active].name | [0]" -o tsv)
+          echo "revision=$prev" >> "$GITHUB_OUTPUT"
+          echo "Previous active revision: $prev"
+
       - name: Update Container App image
         run: |
           az containerapp update \
@@ -101,16 +106,27 @@ jobs:
           echo "fqdn=$fqdn" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test /health
+        id: smoke
         run: |
-          curl --fail --retry 3 --retry-delay 10 \
-            "https://${{ steps.fqdn.outputs.fqdn }}/health"
+          # Wait for the new revision to come up; up to 5 attempts at 15s intervals.
+          for i in 1 2 3 4 5; do
+            if curl --fail --silent --max-time 10 \
+                "https://${{ steps.fqdn.outputs.fqdn }}/health"; then
+              echo ""
+              echo "smoke OK on attempt $i"
+              exit 0
+            fi
+            echo "smoke attempt $i failed, retrying..."
+            sleep 15
+          done
+          echo "smoke test failed after 5 attempts"
+          exit 1
 
-      # Rollback placeholder — fleshed out in c14. Idea: capture previous image
-      # tag before update and re-apply on smoke-test failure.
-      # - name: Rollback on smoke failure
-      #   if: failure()
-      #   run: |
-      #     az containerapp update \
-      #       --name "${{ env.CONTAINER_APP }}" \
-      #       --resource-group "${{ env.RESOURCE_GROUP }}" \
-      #       --image "${{ env.IMAGE_NAME }}:${{ steps.previous.outputs.tag }}"
+      - name: Rollback on smoke failure
+        if: failure() && steps.smoke.conclusion == 'failure' && steps.previous.outputs.revision != ''
+        run: |
+          echo "Rolling back to revision ${{ steps.previous.outputs.revision }}"
+          az containerapp ingress traffic set \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --revision-weight "${{ steps.previous.outputs.revision }}=100"
