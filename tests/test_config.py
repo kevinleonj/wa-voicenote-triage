@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import contextlib
 from pathlib import Path
 
 import pytest
@@ -367,24 +366,45 @@ HANDLERS_PATH = PROJECT_ROOT / "src" / "wa_voicenote" / "handlers.py"
     reason="handlers.py is created in c6/c12 — this test activates then.",
 )
 def test_no_hardcoded_messages_in_handlers() -> None:
-    """Scan handlers.py AST for string constants in module body. None expected.
+    """Handler module must not contain user-facing string literals.
 
-    User-facing strings must come from Settings, not literals.
+    User-facing messages must come from Settings (loaded from env vars)
+    per PLAN.md §10.2. This test parses handlers.py and flags any string
+    literal of length >= 10 characters that is NOT a module-, class-, or
+    function-level docstring. Type hints and short identifiers are allowed
+    implicitly via the length threshold.
+
+    The previous heuristic (sentence-shape + module-docstring removal) was
+    replaced in c6 with this precise docstring-id exclusion so function-level
+    docstrings are no longer flagged as false positives.
     """
     source = HANDLERS_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
+
+    # Collect the id() of every node that is a docstring expression.
+    docstring_ids: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        ):
+            docstring_ids.add(id(node.body[0].value))
+
+    min_user_facing_len = 10
     offenders: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            value = node.value
-            # Allow docstrings and short identifiers; flag any string that looks
-            # like a sentence with a space and length > 12 (heuristic).
-            if " " in value and len(value) > 12 and not value.startswith(("http", "/")):
-                offenders.append(value)
-    # Allow module-level docstring(s) by removing the first if it sits as Expr.
-    if tree.body and isinstance(tree.body[0], ast.Expr):
-        first = tree.body[0].value
-        if isinstance(first, ast.Constant) and isinstance(first.value, str):
-            with contextlib.suppress(ValueError):
-                offenders.remove(first.value)
-    assert offenders == [], f"User-facing literals in handlers.py: {offenders}"
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstring_ids
+            and len(node.value) >= min_user_facing_len
+        ):
+            offenders.append(f"line {node.lineno}: {node.value!r}")
+
+    assert not offenders, (
+        "handlers.py contains hardcoded string literals. Move them to Settings.\n"
+        + "\n".join(offenders)
+    )
