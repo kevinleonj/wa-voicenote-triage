@@ -70,3 +70,20 @@ def _clear_settings_cache() -> None:
     except ImportError:
         return
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_observability() -> object:
+    """Reset observability module-level state between tests.
+
+    The ``configure_observability`` function is idempotent, so without this
+    reset the second test in a process would silently skip configuration.
+    Imported lazily so test modules that don't touch observability still
+    work in isolation.
+    """
+    yield
+    try:
+        from wa_voicenote.observability import reset_for_tests
+    except ImportError:
+        return
+    reset_for_tests()

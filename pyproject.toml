@@ -10,12 +10,16 @@ dependencies = [
     "aiohttp>=3.10,<4",
     "azure-data-tables>=12.5,<13",
     "azure-identity>=1.19,<2",
+    "azure-monitor-opentelemetry>=1.7,<2",
     "azure-storage-blob>=12.24,<13",
     "fastapi>=0.118,<1",
     "httpx>=0.28,<1",
+    "opentelemetry-instrumentation-fastapi>=0.59b0",
+    "opentelemetry-instrumentation-httpx>=0.59b0",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.6,<3",
     "python-multipart>=0.0.20,<1",
+    "structlog>=25.4,<26",
 ]
 
 [build-system]
