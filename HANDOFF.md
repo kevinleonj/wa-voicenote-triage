@@ -8,91 +8,106 @@ Last updated: 2026-05-11
 
 | Field | Value |
 |---|---|
-| Branch | `feat/c3-ci-workflows` (empty, ready for c3 work) |
-| Latest commit on `main` | `5c5710a` — `chore(repo): add Dockerfile, docker-compose, hadolint config (#2)` |
-| Commits merged to `main` | 3 (bootstrap PLAN, c1 scaffold, c2 Docker) |
+| Branch | `main` (no open work; ready for c7) |
+| Latest commit on `main` | `668409e` — `feat(allowlist): implement From allowlist guard (#11)` |
+| Commits merged | 6 of 18 (PLAN §4 + §11.2 fractional commits) |
 | Open PR | None |
-| Branch protection | Not yet active (lands after c3 merges) |
+| Branch protection | Active on `main` (status check `lint + type + test + docker`, linear history, no force-push) |
 
 ---
 
-## What is merged on main
+## Merged commits on main
 
-| SHA | Commit |
-|---|---|
-| `5c5710a` | c2 — Dockerfile (multi-stage uv + ffmpeg + non-root), docker-compose.yml, .hadolint.yaml, hadolint pre-commit hook v2.14.0, Makefile build + dockerlint targets |
-| `ba4f492` | c1 — pyproject.toml (uv), ruff (PLR2004 on), mypy --strict, pytest cov gate 90%, pre-commit hooks (10), Makefile, README, smoke test |
-| `52b372c` | Bootstrap — docs/PLAN.md (Phase 0 plan), bootstrap .gitignore |
+| SHA | Commit | Notes |
+|---|---|---|
+| `668409e` | c6 — From allowlist guard | `is_sender_allowed` + 8 tests + reactivated AST no-hardcoded-strings check on `handlers.py` |
+| `93cd154` | c5 — Twilio HMAC signature validation | canonical algorithm per Twilio docs; FastAPI dependency honors X-Forwarded-Proto/Host; constant-time compare; 16 tests at 100% coverage |
+| `596df5d` | c4 — Pydantic Settings | 28 fields (Twilio + Azure + LLM prompt + 9 message templates + 5 observability vars); SecretStr for tokens; ENV_FILE override; lru_cache |
+| `6bc1e17` | c3 — CI + branch protection | ci.yml (uv, ruff, mypy, pytest+cov, hadolint, docker buildx, trivy HIGH/CRITICAL); deploy.yml gated `if: false` until c14; dependabot weekly |
+| `5c5710a` | c2 — Docker + hadolint | multi-stage Dockerfile (uv builder + ffmpeg + non-root runtime + healthcheck); docker-compose mounts host secrets read-only |
+| `ba4f492` | c1 — uv scaffold | pyproject.toml, ruff (PLR2004), mypy --strict, pytest cov gate 90%, pre-commit hooks |
+| `52b372c` | bootstrap | docs/PLAN.md (Phase 0 plan including §10 decisions and §11 observability) |
 
 ---
 
-## Build / test / lint state
+## Build / test / lint state (as of 668409e on main)
 
 | Check | Status |
 |---|---|
-| `make ci` (lint + format-check + type + test + dockerlint) | Green on `main` |
-| `docker build` | Green |
-| pre-commit (11 hooks incl. hadolint) | Green |
-| gitleaks | Clean |
+| `make ci` (lint + format-check + type + test + dockerlint) | Green |
+| GitHub Actions CI on `main` | Green |
+| pre-commit hooks | Green |
+| gitleaks | Clean across 12 commits |
 | `uv lock --check` | Clean |
-| Coverage | 100% on 1-stmt package (gate 90%) |
+| Tests | 65 pass, 0 skipped |
+| Coverage | 98.88% project-wide (gate 90%) |
+| Modules with 100% coverage | `__init__.py`, `handlers.py`, `twilio_signing.py` |
+| `config.py` coverage | 98% (1 unreachable-from-env branch) |
 
 ---
 
-## What is next: c3 — `chore(ci): add ci.yml and deploy.yml workflow skeletons`
+## Source files merged
+
+| File | Purpose |
+|---|---|
+| `src/wa_voicenote/__init__.py` | Package init, exports `__version__` |
+| `src/wa_voicenote/config.py` | Pydantic Settings model, 28 fields, lru_cached |
+| `src/wa_voicenote/twilio_signing.py` | `compute_signature`, `is_valid_signature`, `require_valid_twilio_signature` FastAPI dependency |
+| `src/wa_voicenote/handlers.py` | Currently only `is_sender_allowed` — full state machine in c12 |
+
+---
+
+## What is next: c7 — `feat(state-repo): implement Azure Table Storage state store`
 
 Files:
-- `.github/workflows/ci.yml` — real steps: setup-uv, uv sync, ruff, ruff-format, mypy, pytest --cov, hadolint, docker build (no push), trivy HIGH/CRITICAL gate
-- `.github/workflows/deploy.yml` — skeleton with `if: false` until c14 (real deploy wiring lands then)
+- `src/wa_voicenote/state_repo.py` — `StateRecord(state, blob_url, awaiting_context_since)`, `get_state`, `set_state`, `check_and_record_sid` (last-100 SID ring per phone)
+- `tests/test_state_repo.py` — written first (Red); mocks `azure-data-tables` async SDK
 
-After c3 merges: enable branch protection on `main` (require ci.yml green, linear history, no force-push).
-
----
-
-## Plan amendments since session start
-
-[docs/PLAN.md](docs/PLAN.md) updated 2026-05-11 with new §11 (Observability and Monitoring):
-- Logs: `structlog` JSON to stdout
-- Metrics + traces: Azure Application Insights via OpenTelemetry SDK + `azure-monitor-opentelemetry`
-- New commit **c10.5** — observability wiring (between c10 AOAI and c11 Twilio client)
-- New commit **c13.5** — `GET /diag` endpoint with bearer-token auth for live status checks
-- New Azure resources: App Insights `appi-wa-voicenote` + Log Analytics workspace `law-wa-voicenote` (both free-tier)
-- New env vars: `APPLICATIONINSIGHTS_CONNECTION_STRING`, `OTEL_SERVICE_NAME`, `LOG_LEVEL`, `DIAG_TOKEN`, `ENV_NAME`
-- 4 KQL alert rules (webhook 5xx, AOAI p95 latency, Twilio failures, cost guard at $15)
-- Net cost impact: $0 (within free tiers)
-- Total commits now: 18 (was 16)
+Verify-docs required before c7: `azure-data-tables` async API — `TableServiceClient`, `upsert_entity`, `get_entity`, `ResourceNotFoundError`, entity schema constraints.
 
 ---
 
 ## Time to first WhatsApp audio working end-to-end
 
-| Milestone | Remaining commits |
+| Milestone | Commits remaining |
 |---|---|
-| CI online + branch protection | c3 |
-| All local code complete (mocked) | c3 → c13 (11 commits) |
-| Azure resources provisioned | one provisioning sprint (RG, Storage, AOAI, Container App, App Insights, MI, OIDC) |
-| First deploy, /health responds | c14 |
-| Twilio Sandbox webhook pointed at Container App | post-c14 manual step |
-| **First voice note → 3 replies back** | end of c14 |
+| c7 state repo (mocked) | 1 |
+| c8 blob staging (mocked) | 1 |
+| c9 ffmpeg transcoder (real subprocess) | 1 |
+| **Azure provisioning sprint at c10 boundary** (RG, Storage, AOAI, App Insights, Container Apps, MI, OIDC) | — |
+| c10 AOAI client + live AOAI smoke test | 1 |
+| c10.5 observability (structlog + OTel + App Insights) | 1 |
+| c11 Twilio REST client | 1 |
+| c12 full state machine | 1 |
+| c13 FastAPI main + /health | 1 |
+| c13.5 /diag bearer-token endpoint | 1 |
+| c14 deploy wiring + first Container App deploy | 1 |
+| **First WhatsApp voice note → 3 replies back** | end of c14 |
+| c15 .env.example | 1 |
+| c16 docs (ARCHITECTURE, DEPLOY, CHANGELOG) | 1 |
 
-Realistic: **15 more focused work blocks**.
-
----
-
-## Live endpoints verified so far
-
-| Service | Status | Notes |
-|---|---|---|
-| Twilio account | Verified | account active, Full tier, friendly_name "My first Twilio account" |
-| Twilio Sandbox | Joined | code `join frighten-therefore` from `whatsapp:+34611779374` → success message at 20:54 |
-| Twilio echo | Working | "Hi" → default echo reply ("You said: Hi. Configure your WhatsApp Sandbox's Inbound URL...") |
-| Azure CLI | Authenticated | `kevin@limeralda.com`, default sub `8c5dd4a1-...2159f7`, tenant `bac379d9-...c40e` |
-| Azure resource group `rg-wa-voicenote` | NOT YET PROVISIONED | will create at c10 for AOAI smoke test |
-| AOAI deployment | NOT YET PROVISIONED | gpt-audio-1.5 v 2026-02-23 confirmed available in swedencentral |
+**10 more commits + 1 provisioning sprint to first live WhatsApp audio.**
 
 ---
 
-## Tooling installed locally this session
+## Live endpoints status
+
+| Service | Status |
+|---|---|
+| Twilio account | Verified active (Full tier) |
+| Twilio Sandbox | Joined from `whatsapp:+34611779374` with code `join frighten-therefore` (2026-05-10 20:54) |
+| Twilio Sandbox echo | Working (default reply observed on test message "Hi") |
+| Twilio Sandbox webhook URL | NOT YET SET — will configure post-c14 to point at Container App `/webhook/whatsapp` |
+| Azure CLI | Authenticated as `kevin@limeralda.com`, default sub `8c5dd4a1-...2159f7`, tenant `bac379d9-...c40e` |
+| Azure resource group `rg-wa-voicenote` | NOT YET PROVISIONED — create at c10 |
+| AOAI deployment `gpt-audio-15` | NOT YET PROVISIONED — `gpt-audio-1.5` v2026-02-23 confirmed available in swedencentral |
+| Storage account `stwavoicenote` | NOT YET PROVISIONED |
+| App Insights `appi-wa-voicenote` | NOT YET PROVISIONED — wires in at c10.5 |
+| Container App `wa-voicenote` | NOT YET PROVISIONED — first deploy at c14 |
+
+---
+
+## Tooling installed locally
 
 | Tool | Version |
 |---|---|
@@ -114,43 +129,61 @@ Realistic: **15 more focused work blocks**.
 
 Contains: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`.
 
-Will add later: `APPLICATIONINSIGHTS_CONNECTION_STRING` (after App Insights provisioned), `DIAG_TOKEN` (generated at deploy time).
+Will append later (after Azure provisioning at c10/c10.5):
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`
+- `AZURE_OPENAI_ENDPOINT` (only for local dev; prod uses Managed Identity)
+- `AZURE_OPENAI_API_KEY` (local dev only)
+- `DIAG_TOKEN` (generated at deploy time)
 
-Never echo, never commit, never log. AOAI uses Managed Identity in production; API key only in local dev.
+Never echo, never commit, never log. Pre-commit `gitleaks` hook gates every commit.
 
 ---
 
 ## Open decisions
 
-None blocking c3. Kevin confirmed observability plan (App Insights + OpenTelemetry + structlog + /diag with bearer token).
+None blocking. PLAN §10.1 captured all Phase 0 answers. PLAN §11 (observability) captured Kevin's logging/monitoring directive.
+
+**Next decision point:** Kevin's go/no-go on Azure provisioning at the c10 boundary. Estimated monthly cost stays ~$5 (within $20 ceiling); App Insights and Log Analytics use free tiers.
 
 ---
 
-## Provisioning still pending (c10–c14 boundary)
+## Provisioning still pending
 
 All scripted in [docs/PLAN.md §6](docs/PLAN.md) and amended in §11.4:
 
 - GitHub Actions OIDC federated credential (Entra app `wa-voicenote-github-actions`)
-- Azure resource group `rg-wa-voicenote` (region: swedencentral)
-- Storage account `stwavoicenote` with table `convstate` and container `audio-staging` (24h lifecycle delete)
-- Azure OpenAI Foundry resource `aoai-wa-voicenote` with deployment `gpt-audio-15` (model: gpt-audio-1.5, version 2026-02-23)
-- Log Analytics workspace `law-wa-voicenote` + Application Insights `appi-wa-voicenote`
-- Container App `wa-voicenote` in environment `cae-wa-voicenote` (min_replicas=0, max_replicas=2)
-- Managed Identity role assignments: Cognitive Services OpenAI User, Storage Table Data Contributor, Storage Blob Data Contributor
+- Resource group `rg-wa-voicenote` in `swedencentral`
+- Storage account `stwavoicenote` (Standard_LRS) + table `convstate` + container `audio-staging` (24h lifecycle delete)
+- Log Analytics workspace `law-wa-voicenote` (PerGB2018, 30-day retention)
+- Application Insights `appi-wa-voicenote` (web type, linked to law-wa-voicenote)
+- AOAI Foundry `aoai-wa-voicenote` + deployment `gpt-audio-15` (model `gpt-audio-1.5` v2026-02-23, Standard tier, low TPM cap)
+- Container Apps environment `cae-wa-voicenote`
+- Container App `wa-voicenote` (min_replicas=0, max_replicas=2, system-assigned identity)
+- Role assignments to Container App MI: Cognitive Services OpenAI User, Storage Table Data Contributor, Storage Blob Data Contributor
 
 ---
 
 ## Hardcoding policy reminder
 
-[docs/PLAN.md §10.2](docs/PLAN.md): no literal strings or magic numbers in `src/wa_voicenote/*.py` business logic. Everything via `config.py` (Pydantic Settings) + env vars. `config.py` lands in c4. Ruff PLR2004 enabled; `tests/**` exempted.
+[docs/PLAN.md §10.2](docs/PLAN.md): no literal user-facing strings or magic numbers in `src/wa_voicenote/*.py` business logic. Everything via `config.py` (Pydantic Settings) + env vars. Ruff PLR2004 enforced; `tests/**` exempted. `handlers.py` AST scan is active and passing.
+
+---
+
+## Live-endpoint discipline (Kevin's directive)
+
+Ping the real endpoint at every touchpoint:
+- c10: provision AOAI, run a real `gpt-audio-1.5` call against a 1s WAV fixture
+- c10.5: send a structured log line and an OTel span to App Insights, verify in Live Metrics
+- c11: send a real Twilio Sandbox message from the CLI before code changes ship
+- c14: full end-to-end (Twilio webhook → Container App → AOAI → Storage → Twilio REST reply)
 
 ---
 
 ## How to resume in a fresh session
 
-1. Read [docs/PLAN.md](docs/PLAN.md) end-to-end (it is the source of truth, including §10 decisions and §11 observability).
+1. Read [docs/PLAN.md](docs/PLAN.md) end-to-end (source of truth, including §10 decisions and §11 observability).
 2. Read this `HANDOFF.md` for current branch, last green commit, and next commit ID.
-3. Run `make ci` on the current branch to confirm green starting state before any new work.
+3. Run `make ci` on `main` to confirm green starting state before any new work.
 4. Follow Red then Green then Refactor for the next commit; every commit must keep `make ci` green before push.
-5. Verify-docs runs are required before c5 (Twilio signing), c7 (Azure Tables SDK), c8 (Azure Blob SDK), c10 (AOAI Chat Completions audio), c10.5 (azure-monitor-opentelemetry), c11 (Twilio Python helper library).
-6. Live-endpoint ping discipline: ping Twilio and Azure at every touchpoint per Kevin's directive. Never trust documentation alone.
+5. Verify-docs runs are required before c7 (Azure Tables), c8 (Azure Blob), c10 (AOAI Chat Completions audio), c10.5 (azure-monitor-opentelemetry), c11 (Twilio Python helper library).
+6. Live-endpoint ping discipline per Kevin's directive: ping real Twilio and Azure at every touchpoint. Never trust documentation alone.
