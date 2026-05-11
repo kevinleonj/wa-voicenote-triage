@@ -108,23 +108,21 @@ async def require_valid_twilio_signature(
     auth_token = settings.twilio_auth_token.get_secret_value()
 
     if not is_valid_signature(auth_token, url, params, signature):
-        # Diagnostic logging: never log the token; log only the reconstructed
-        # URL, sorted param keys, and the forwarded headers we saw. This is
-        # safe to leave in production: no secrets, no PII (param values are
-        # not logged), and only fires on mismatch.
+        # Diagnostic line: never log the token. Uses an f-string so the
+        # rendered message lands in Container Apps stdout regardless of
+        # the formatter configuration.
         import logging
 
-        logging.getLogger("twilio_signing").warning(
-            "signature_mismatch",
-            extra={
-                "reconstructed_url": url,
-                "param_keys": sorted(params.keys()),
-                "x_forwarded_proto": request.headers.get(_FORWARDED_PROTO_HEADER),
-                "x_forwarded_host": request.headers.get(_FORWARDED_HOST_HEADER),
-                "raw_request_url": str(request.url),
-                "received_signature_len": len(signature),
-            },
+        proto = request.headers.get(_FORWARDED_PROTO_HEADER)
+        host = request.headers.get(_FORWARDED_HOST_HEADER)
+        keys = ",".join(sorted(params.keys()))
+        diag = (
+            f"signature_mismatch reconstructed_url={url} "
+            f"raw_url={request.url!s} "
+            f"x_forwarded_proto={proto} x_forwarded_host={host} "
+            f"param_keys={keys} sig_len={len(signature)}"
         )
+        logging.getLogger("twilio_signing").warning(diag)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid Twilio signature",
