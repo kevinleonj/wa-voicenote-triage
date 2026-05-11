@@ -51,6 +51,7 @@ def _make_settings(
         twilio_allowlist: list[str] = [_ALLOWED_FROM]  # noqa: RUF012 - test stub, not shared
         azure_storage_container = container
         context_timeout_seconds = timeout_s
+        whatsapp_max_chars_per_message = 1500
         msg_ack_received = "ACK_RECEIVED_TEMPLATE_VALUE"
         msg_replaced_audio = "REPLACED_AUDIO_TEMPLATE_VALUE"
         msg_idle_text_hint = "IDLE_HINT_TEMPLATE_VALUE"
@@ -466,3 +467,67 @@ async def test_audio_with_non_audio_mimetype_treated_as_text() -> None:
     mocks["fetch"].assert_not_awaited()
     mocks["transcode"].assert_not_awaited()
     mocks["blob_repo"].upload_audio.assert_not_awaited()
+
+
+# -----------------------------------------------------------------------------
+# Tests for _chunk_message (c14 hotfix: Twilio 21617 character-limit error)
+# -----------------------------------------------------------------------------
+
+
+from wa_voicenote.handlers import _chunk_message  # noqa: E402
+
+
+def test_chunk_short_message_is_single_chunk() -> None:
+    assert _chunk_message("hi", 1500) == ["hi"]
+
+
+def test_chunk_at_paragraph_boundary() -> None:
+    para = "x" * 60
+    body = f"{para}\n\n{para}"
+    chunks = _chunk_message(body, max_chars=100)
+    assert len(chunks) == 2
+    assert chunks[0] == para
+    assert chunks[1] == para
+
+
+def test_chunk_at_sentence_boundary() -> None:
+    sent = "x" * 40
+    body = f"{sent}. {sent}. {sent}."
+    chunks = _chunk_message(body, max_chars=80)
+    assert all(len(c) <= 80 for c in chunks)
+    assert "x" * (len(sent) * 3) in "".join(chunks).replace(" ", "").replace(".", "")
+
+
+def test_chunk_hard_cut_when_no_whitespace() -> None:
+    # No spaces or punctuation; chunker falls back to hard cut.
+    body = "x" * 5000
+    chunks = _chunk_message(body, max_chars=1500)
+    # Each chunk respects the budget (max_chars - marker reserve).
+    assert all(len(c) <= 1500 for c in chunks)
+    assert "".join(chunks) == body
+
+
+def test_chunk_respects_marker_reserve() -> None:
+    # A 3000-char body with max 1500 should produce chunks small enough that
+    # adding a "(i/N) " marker keeps each send under 1500.
+    body = "word " * 600  # 3000 chars
+    chunks = _chunk_message(body, max_chars=1500)
+    assert all(len(f"(99/99) {c}") <= 1500 for c in chunks)
+
+
+def test_chunk_preserves_total_content_when_split_on_space() -> None:
+    body = " ".join([f"word{i}" for i in range(500)])
+    chunks = _chunk_message(body, max_chars=200)
+    joined = " ".join(chunks)
+    # Some whitespace at chunk boundaries may collapse; verify by words.
+    assert joined.split() == body.split()
+
+
+def test_chunk_real_3min_transcript_length() -> None:
+    # Roughly what a 3-minute voice note's transcript produced live.
+    body = ("This is a sentence about the meeting. " * 200).strip()  # ~7600 chars
+    chunks = _chunk_message(body, max_chars=1500)
+    # All chunks fit within the per-message budget plus marker.
+    assert all(len(f"({i}/99) {c}") <= 1600 for i, c in enumerate(chunks, start=1))
+    # Content round-trip by word.
+    assert " ".join(chunks).split() == body.split()

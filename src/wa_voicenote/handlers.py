@@ -98,6 +98,50 @@ def is_sender_allowed(sender: str, allowlist: Iterable[str]) -> bool:
     return sender in set(allowlist)
 
 
+# Reserve some headroom under the configured limit so the "(i/N) " marker
+# we prepend during chunked sends does not push the chunk over the cap.
+_CHUNK_MARKER_RESERVE: Final[int] = 16
+
+
+def _chunk_message(body: str, max_chars: int) -> list[str]:
+    """Split ``body`` into chunks no longer than ``max_chars``.
+
+    Preference order for split boundaries:
+    1. Double newline (paragraph break)
+    2. Single newline (line break)
+    3. Sentence-ending punctuation followed by whitespace
+    4. Single space
+    5. Hard character cut (fallback for unbreakable runs)
+
+    Returns at least one chunk. Each chunk leaves room for the
+    ``(i/N) `` marker the caller prepends.
+    """
+    budget = max_chars if max_chars <= _CHUNK_MARKER_RESERVE else max_chars - _CHUNK_MARKER_RESERVE
+    if len(body) <= budget:
+        return [body]
+
+    chunks: list[str] = []
+    remaining = body
+    while len(remaining) > budget:
+        window = remaining[:budget]
+        # Try progressively coarser split points.
+        cut = max(
+            window.rfind("\n\n"),
+            window.rfind("\n"),
+            window.rfind(". "),
+            window.rfind("? "),
+            window.rfind("! "),
+            window.rfind(" "),
+        )
+        if cut <= 0:
+            cut = budget  # hard cut
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
 class WebhookHandler:
     """State machine for the WhatsApp webhook.
 
@@ -223,6 +267,22 @@ class WebhookHandler:
         ref = await self._blob_repo.upload_audio(inbound.from_, wav)
         return wav, ref.blob_url
 
+    async def _send_chunked(self, to: str, body: str) -> None:
+        """Send a message body, splitting at safe boundaries if over the limit.
+
+        Twilio enforces a 1600-character cap per WhatsApp message body (error
+        21617). We split anything over ``settings.whatsapp_max_chars_per_message``
+        into multiple sends with ``(i/N)`` markers prepended.
+        """
+        chunks = _chunk_message(body, self._settings.whatsapp_max_chars_per_message)
+        if len(chunks) == 1:
+            await self._twilio.send_text(to, chunks[0])
+            return
+        total = len(chunks)
+        for index, chunk in enumerate(chunks, start=1):
+            marker = f"({index}/{total}) "
+            await self._twilio.send_text(to, marker + chunk)
+
     # ---- Transition handlers ------------------------------------------------
 
     async def _handle_idle_audio(
@@ -294,9 +354,9 @@ class WebhookHandler:
             summary_msg = self._settings.label_summary + result.summary
             reply_msg = self._settings.label_suggested_reply + result.suggested_reply
 
-            await self._twilio.send_text(inbound.from_, transcript_msg)
-            await self._twilio.send_text(inbound.from_, summary_msg)
-            await self._twilio.send_text(inbound.from_, reply_msg)
+            await self._send_chunked(inbound.from_, transcript_msg)
+            await self._send_chunked(inbound.from_, summary_msg)
+            await self._send_chunked(inbound.from_, reply_msg)
             log.info(_EV_PROCESSED)  # type: ignore[attr-defined]
         except AoaiError:
             # Notify the user, reset the state machine, drop the blob, and

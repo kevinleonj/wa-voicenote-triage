@@ -35,6 +35,10 @@ _DEFAULT_HTTP_TIMEOUT_S = 180
 # A 3-minute WhatsApp voice note transcript alone is ~700 tokens; under-budget
 # truncates JSON mid-string and breaks parsing.
 _DEFAULT_AOAI_MAX_TOKENS = 4000
+# Twilio's hard limit for a single WhatsApp message body is 1600 characters
+# (error 21617 if exceeded). We chunk anything longer at safe boundaries
+# and prepend page markers. 1500 leaves headroom for the marker.
+_DEFAULT_WA_MAX_CHARS = 1500
 _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_OTEL_SERVICE_NAME = "wa-voicenote-triage"
 _DEFAULT_ENV_NAME = "local"
@@ -100,6 +104,7 @@ class Settings(BaseSettings):
     idempotency_ring_size: int = Field(default=_DEFAULT_IDEMPOTENCY_RING_SIZE)
     http_timeout_seconds: int = Field(default=_DEFAULT_HTTP_TIMEOUT_S)
     aoai_max_tokens: int = Field(default=_DEFAULT_AOAI_MAX_TOKENS)
+    whatsapp_max_chars_per_message: int = Field(default=_DEFAULT_WA_MAX_CHARS)
     log_level: str = Field(default=_DEFAULT_LOG_LEVEL)
     otel_service_name: str = Field(default=_DEFAULT_OTEL_SERVICE_NAME)
     env_name: str = Field(default=_DEFAULT_ENV_NAME)
@@ -178,6 +183,7 @@ class Settings(BaseSettings):
         "idempotency_ring_size",
         "http_timeout_seconds",
         "aoai_max_tokens",
+        "whatsapp_max_chars_per_message",
     )
     @classmethod
     def _must_be_positive(cls, value: int) -> int:
