@@ -20,13 +20,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Final
+from typing import Annotated, Final
 
 import httpx
 from azure.data.tables.aio import TableClient
 from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob.aio import BlobServiceClient
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Header, Request, Response
 
 from wa_voicenote.aoai_client import AoaiClient
 from wa_voicenote.blob_repo import BlobRepo
@@ -236,6 +236,16 @@ def _register_routes(target: FastAPI) -> None:
             log.exception("handler_error")
 
         return Response(content=_EMPTY_TWIML, media_type="application/xml")
+
+    @target.get("/diag")
+    async def diag(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, object]:
+        # Local import to avoid loading diag at startup when the feature is off.
+        from wa_voicenote.diag import build_diag_response
+
+        return await build_diag_response(request, authorization)
 
 
 app = FastAPI(
