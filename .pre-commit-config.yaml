@@ -34,6 +34,8 @@ repos:
           - pydantic>=2.10
           - pydantic-settings>=2.6
           - fastapi>=0.118
+          - azure-data-tables>=12.5
+          - azure-identity>=1.19
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
