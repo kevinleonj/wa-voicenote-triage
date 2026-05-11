@@ -84,10 +84,20 @@ async def ping_aoai(
 
 
 async def ping_table(table_client: TableClient) -> PingResult:
-    """Ping Azure Tables by reading the table access policy (lightweight)."""
+    """Ping Azure Tables by listing 1 entity (data-plane, no management perms).
+
+    Earlier we used ``get_table_access_policy()`` but that requires
+    management-plane access (Owner-level), which the Container App's
+    Managed Identity intentionally does not have. ``list_entities(top=1)``
+    is a pure data-plane op covered by the ``Storage Table Data Contributor``
+    role we already grant.
+    """
     start = time.perf_counter()
     try:
-        await table_client.get_table_access_policy()
+        iterator = table_client.list_entities(results_per_page=1)
+        # Consume at most one entity. An empty table still returns ok.
+        async for _ in iterator:
+            break
         return PingResult(
             ok=True,
             latency_ms=int((time.perf_counter() - start) * 1000),

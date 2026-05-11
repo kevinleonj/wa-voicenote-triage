@@ -45,12 +45,25 @@ def _settings_stub(*, diag_token: str | None = _DIAG_TOKEN) -> SimpleNamespace:
     )
 
 
+def _make_async_iter() -> Any:
+    """Return an object whose ``__aiter__`` yields one then stops.
+
+    Used as the return value of ``list_entities`` in the ping_table mock.
+    """
+
+    class _Iter:
+        async def __aiter__(self) -> Any:
+            yield {"PartitionKey": "x", "RowKey": "y"}
+
+    return _Iter()
+
+
 def _app_with_state(*, diag_token: str | None = _DIAG_TOKEN) -> FastAPI:
     """Build a FastAPI app with no lifespan and mocked state."""
     app = create_app(lifespan_override=None)
     app.state.settings = _settings_stub(diag_token=diag_token)
     app.state.table_client = AsyncMock()
-    app.state.table_client.get_table_access_policy = AsyncMock(return_value={})
+    app.state.table_client.list_entities = lambda **_kw: _make_async_iter()
     app.state.blob_service = AsyncMock()
     container_mock = AsyncMock()
     container_mock.get_container_properties = AsyncMock(return_value={})
@@ -199,7 +212,21 @@ async def test_ping_aoai_returns_not_ok_on_http_error() -> None:
 @pytest.mark.asyncio
 async def test_ping_table_ok() -> None:
     table = AsyncMock()
-    table.get_table_access_policy = AsyncMock(return_value={})
+    table.list_entities = lambda **_kw: _make_async_iter()
+    result = await ping_table(table)
+    assert result.ok is True
+
+
+@pytest.mark.asyncio
+async def test_ping_table_ok_when_empty() -> None:
+    table = AsyncMock()
+
+    class _Empty:
+        async def __aiter__(self) -> Any:
+            return
+            yield  # type: ignore[unreachable]
+
+    table.list_entities = lambda **_kw: _Empty()
     result = await ping_table(table)
     assert result.ok is True
 
@@ -207,12 +234,16 @@ async def test_ping_table_ok() -> None:
 @pytest.mark.asyncio
 async def test_ping_table_failure() -> None:
     table = AsyncMock()
-    table.get_table_access_policy = AsyncMock(
-        side_effect=ServiceRequestError("table boom"),
-    )
+
+    def _raise(**_kw: Any) -> Any:
+        raise ServiceRequestError("table boom")
+
+    table.list_entities = _raise
+
     result = await ping_table(table)
     assert result.ok is False
     assert result.error is not None
+    assert "table boom" in result.error
 
 
 @pytest.mark.asyncio

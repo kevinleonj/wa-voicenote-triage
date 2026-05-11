@@ -71,6 +71,24 @@ def configure_observability(settings: Settings, app: FastAPI | None = None) -> N
         force=True,
     )
 
+    # 1a. Silence verbose third-party loggers. The Azure Monitor / OpenTelemetry
+    #     exporters default to DEBUG-level chatter that floods Container Apps
+    #     stdout with QuickPulse request/response headers and instrumentation
+    #     handshakes. Pinning them at WARNING leaves real warnings visible while
+    #     keeping the console focused on app events. azure-core's HTTP logger is
+    #     the worst offender; the rest are quieter but follow the same pattern.
+    for noisy in (
+        "azure",
+        "azure.core.pipeline.policies.http_logging_policy",
+        "azure.monitor.opentelemetry.exporter",
+        "azure.monitor.opentelemetry.exporter.export",
+        "opentelemetry",
+        "opentelemetry.exporter.otlp",
+        "opentelemetry.sdk",
+        "urllib3",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     # 2. structlog: JSON renderer + processor chain. The wrapper is filtered at
     #    the configured level so DEBUG events are dropped cheaply in INFO mode.
     structlog.configure(
