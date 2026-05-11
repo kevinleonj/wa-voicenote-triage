@@ -38,6 +38,10 @@ repos:
           - azure-data-tables>=12.5
           - azure-identity>=1.19
           - azure-storage-blob>=12.24
+          - azure-monitor-opentelemetry>=1.7
+          - opentelemetry-instrumentation-fastapi>=0.59b0
+          - opentelemetry-instrumentation-httpx>=0.59b0
+          - structlog>=25.4
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
