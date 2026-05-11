@@ -774,4 +774,112 @@ No new commits added; amendments roll into existing commits:
 
 ---
 
-_End of PLAN.md. No code written. Implementation begins at c1 once Kevin greenlights._
+## 11. Observability and Monitoring (added 2026-05-11)
+
+### 11.1 Decisions
+
+| Concern | Choice | Reason |
+|---|---|---|
+| Log shape | Structured JSON to stdout via `structlog` | Container Apps captures stdout natively; queryable in App Insights via KQL |
+| Metrics + traces | Azure Application Insights + OpenTelemetry SDK | 1 GB/mo free, distributed tracing across FastAPI → AOAI → Storage → Twilio |
+| Real-time view | App Insights Live Metrics stream | Zero query lag; sharable deeplink |
+| Alerts | App Insights KQL alert rules | 10 free; covers webhook 5xx, AOAI latency, Twilio send failures |
+| Dashboard | Pinned Azure Portal dashboard | Authenticated via Kevin's Entra account; no extra auth surface |
+| Public log endpoint | None | Security hole on single-user bot; Azure Portal already authenticated |
+| Quick-check endpoint | `GET /diag` with bearer-token auth | Lightweight live status without exposing logs |
+
+### 11.2 New commits (slot into §4 order)
+
+#### c10.5 — `feat(observability): structlog + OpenTelemetry + App Insights export`
+
+Files touched:
+- `src/wa_voicenote/observability.py` (new) — configures structlog, OpenTelemetry tracer + meter providers, App Insights exporter, FastAPI/HTTPX/Azure SDK auto-instrumentation
+- `src/wa_voicenote/config.py` (modified) — adds `applicationinsights_connection_string`, `otel_service_name`, `log_level` settings
+- `tests/test_observability.py` (new — Red first) — asserts structlog emits JSON, OTel spans propagate, App Insights exporter is configured from connection string, no telemetry on missing config (graceful degradation)
+- Adds dependencies: `structlog`, `opentelemetry-distro`, `azure-monitor-opentelemetry`, `opentelemetry-instrumentation-fastapi`, `opentelemetry-instrumentation-httpx`
+
+**verify-docs required:** confirm `azure-monitor-opentelemetry` package name and current API; confirm OTel auto-instrumentation hooks for FastAPI 0.11x and httpx; confirm App Insights connection-string format and ingestion endpoint for swedencentral.
+
+What becomes green: telemetry initializes without error when env vars unset; emits to App Insights when set; structlog JSON visible in stdout; spans visible in Live Metrics during integration test.
+
+#### c13.5 — `feat(diag): /diag endpoint with bearer-token auth`
+
+Files touched:
+- `src/wa_voicenote/main.py` (modified) — adds `GET /diag` route
+- `src/wa_voicenote/diag.py` (new) — pings AOAI deployment, pings Storage table, returns JSON: AOAI ping ms, Storage ping ms, app version, env name, last 10 webhook events (from in-memory ring or short-TTL App Insights query)
+- `tests/test_diag.py` (new — Red first) — asserts: 401 without token, 401 wrong token, 200 with valid token, response shape, never leaks secrets
+
+Env vars added: `DIAG_TOKEN` (Container App secret, generated at deploy time).
+
+What becomes green: bearer-token auth blocks unauthorized callers; AOAI and Storage pings complete with timing data; no PII in response body.
+
+### 11.3 New env vars (added to §10.3 inventory)
+
+| Var | Purpose | Default |
+|---|---|---|
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | App Insights ingestion connection string | (none — telemetry disabled if unset) |
+| `OTEL_SERVICE_NAME` | OpenTelemetry service.name resource attribute | `wa-voicenote-triage` |
+| `LOG_LEVEL` | Root log level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+| `DIAG_TOKEN` | Bearer token for `/diag` endpoint | (none — endpoint returns 503 if unset, so it's always safe) |
+| `ENV_NAME` | Deployment name (local, dev, prod) for telemetry tagging | `local` |
+
+### 11.4 New Azure resource (added to §6)
+
+```
+az monitor app-insights component create \
+  --app appi-wa-voicenote \
+  --location swedencentral \
+  --resource-group rg-wa-voicenote \
+  --kind web \
+  --application-type web \
+  --workspace <log-analytics-workspace-id>
+
+# Log Analytics workspace (App Insights backend)
+az monitor log-analytics workspace create \
+  --resource-group rg-wa-voicenote \
+  --workspace-name law-wa-voicenote \
+  --location swedencentral \
+  --sku PerGB2018 \
+  --retention-time 30
+
+# Retrieve connection string for Container App secret
+az monitor app-insights component show \
+  --app appi-wa-voicenote \
+  --resource-group rg-wa-voicenote \
+  --query connectionString -o tsv
+```
+
+Pass the connection string into the Container App as a secret (`appinsights-conn`) and reference via `secretref:appinsights-conn` in the env-var block.
+
+### 11.5 Alert rules (provisioned post-c14)
+
+| Alert | KQL | Threshold | Action |
+|---|---|---|---|
+| Webhook 5xx rate | `requests \| where url contains "/webhook/whatsapp" and success == false \| summarize count() by bin(timestamp, 5m)` | >3 in 5 min | Email kevin@limeralda.com |
+| AOAI p95 latency | `dependencies \| where target contains "openai.azure.com" \| summarize percentile(duration, 95) by bin(timestamp, 5m)` | >20000 ms | Email |
+| Twilio send failure | `dependencies \| where target contains "api.twilio.com" and success == false \| count` | >2 in 10 min | Email |
+| Cost guard | Azure Cost Management alert at $15 (75% of $20 cap) | $15/mo | Email |
+
+### 11.6 Cost impact
+
+| Resource | Projected use | Cost |
+|---|---|---|
+| App Insights ingestion | ~10 MB/mo (50 voice notes × ~200 KB telemetry) | $0 (within 1 GB free tier) |
+| Log Analytics workspace | Same data, 30-day retention | $0 (within free tier) |
+| Alert rules | 4 rules | $0 (within 10 free rule allowance) |
+| **Added to cost model** | | **$0** |
+
+Total monthly estimate stays at ~$5.05 (PLAN §7), well under the $20 ceiling.
+
+### 11.7 Commit-order amendment
+
+Inserts into §4 sequence:
+```
+... c9 c10 [c10.5 observability] c11 c12 c13 [c13.5 diag] c14 c15 c16
+```
+
+Total commits: 18 (was 16). Final commit numbering renumbered c1..c18 at implementation time, or kept as c10.5/c13.5 — Kevin to decide at c10. Default: keep fractional numbering so historical references in HANDOFF.md remain stable.
+
+---
+
+_End of PLAN.md. Implementation in progress. Up to and including c2 merged to main as of 2026-05-11._

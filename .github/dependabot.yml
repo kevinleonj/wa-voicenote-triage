@@ -1,0 +1,23 @@
+# Dependabot configuration for wa-voicenote-triage.
+#
+# Keeps GitHub Actions pins and pip dependencies fresh on a weekly cadence.
+# Action pins in ci.yml / deploy.yml use SHAs + version comments — Dependabot
+# understands this pattern and bumps both the SHA and the trailing comment.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"

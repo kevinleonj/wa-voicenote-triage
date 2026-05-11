@@ -1,0 +1,133 @@
+# CI workflow for wa-voicenote-triage.
+#
+# Runs the same checks as `make ci` plus Docker build, Hadolint, and a Trivy
+# image scan. Action versions are pinned to released tags AND commit SHAs so a
+# future tag re-point (e.g. the trivy-action March 2026 supply-chain incident)
+# cannot silently change what runs here. Dependabot will open PRs to bump these
+# pins on a weekly schedule.
+#
+# Triggers:
+#   - push to any branch
+#   - pull_request targeting main
+#   - workflow_dispatch (manual)
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Minimum permissions: this workflow only reads source and uploads an artifact
+# scoped to the run. No package or token writes.
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same ref when a new commit is pushed.
+# Saves CI minutes on rapid pushes; the latest commit is what matters anyway.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ci:
+    name: lint + type + test + docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+
+      - name: Set up uv (and Python via .python-version)
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (uv sync --frozen)
+        run: uv sync --frozen
+
+      # ffmpeg is needed by the transcoder tests landing in c9. Installing now
+      # is harmless on earlier commits — the runner is ephemeral, cost is one
+      # apt fetch, and it keeps the workflow stable across upcoming commits.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Mypy --strict
+        run: uv run mypy --strict src
+
+      - name: Pytest with coverage
+        run: |
+          uv run pytest \
+            --cov=src/wa_voicenote \
+            --cov-report=term-missing \
+            --cov-report=xml
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        with:
+          dockerfile: ./Dockerfile
+          config: ./.hadolint.yaml
+          failure-threshold: warning
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # Build the image locally (no registry push) and load it into the local
+      # Docker daemon so Trivy can scan it by tag.
+      - name: Build image (no push, load for scan)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: wa-voicenote-triage:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Trivy v0.36.0 is the first SAFE post-incident tag (supply-chain compromise
+      # of tags 0.0.1–0.34.2 happened on 2026-03-19; v0.35.0 was a clean rebuild
+      # of pre-incident 0.35.0 and v0.36.0 is the first new release after that).
+      # Pinning by SHA defends against future tag-repoint attacks.
+      - name: Trivy image scan (HIGH,CRITICAL gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: wa-voicenote-triage:ci
+          scan-type: image
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
+
+      - name: CI summary
+        if: success()
+        run: |
+          echo "::notice title=CI green::lint + format + mypy + pytest + hadolint + docker build + trivy all passed"
+          echo "all green" >> "$GITHUB_STEP_SUMMARY"

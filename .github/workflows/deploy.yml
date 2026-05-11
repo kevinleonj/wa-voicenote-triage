@@ -1,0 +1,116 @@
+# Deploy workflow for wa-voicenote-triage.
+#
+# DEPLOY GATE: real wiring lands in c14 once Azure resources are provisioned.
+# The `if: false` line below disables every deploy run until then. The CI
+# workflow (ci.yml) still runs on every push to main, so main branch protection
+# continues to work normally before c14.
+#
+# When c14 lands:
+#   1. Remove the `if: false` from the job
+#   2. Set repo secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   3. Confirm the federated identity credential is bound to this repo + ref=main
+#   4. Confirm the Container App `wa-voicenote` exists in `rg-wa-voicenote`
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# id-token: write is required for OIDC federation to Azure.
+# packages:  write is required to push images to GHCR.
+# contents:  read covers checkout.
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+# Deploys must complete; never cancel a deploy that is already running.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: build + push + container app update
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # DEPLOY GATE: see header. This MUST stay `if: false` until c14.
+    if: false
+
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+      RESOURCE_GROUP: rg-wa-voicenote
+      CONTAINER_APP: wa-voicenote
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Container App image
+        run: |
+          az containerapp update \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --image "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+      - name: Resolve Container App FQDN
+        id: fqdn
+        run: |
+          fqdn=$(az containerapp show \
+            --name "${{ env.CONTAINER_APP }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "fqdn=$fqdn" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test /health
+        run: |
+          curl --fail --retry 3 --retry-delay 10 \
+            "https://${{ steps.fqdn.outputs.fqdn }}/health"
+
+      # Rollback placeholder — fleshed out in c14. Idea: capture previous image
+      # tag before update and re-apply on smoke-test failure.
+      # - name: Rollback on smoke failure
+      #   if: failure()
+      #   run: |
+      #     az containerapp update \
+      #       --name "${{ env.CONTAINER_APP }}" \
+      #       --resource-group "${{ env.RESOURCE_GROUP }}" \
+      #       --image "${{ env.IMAGE_NAME }}:${{ steps.previous.outputs.tag }}"
