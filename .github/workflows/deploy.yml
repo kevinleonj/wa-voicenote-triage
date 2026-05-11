@@ -72,6 +72,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Ensure GHCR package is public
+        # Container Apps does not authenticate to GHCR by default. Making the
+        # image public is the simplest unblock; the alternative is to wire a
+        # dedicated read-only PAT as a Container App registry credential.
+        # Idempotent: a no-op if already public.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X PATCH \
+            "/user/packages/container/wa-voicenote-triage/visibility" \
+            -f visibility=public || \
+            echo "Visibility change skipped (likely already public or first push)."
+
       - name: Azure login (OIDC)
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
