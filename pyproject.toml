@@ -7,8 +7,10 @@ requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }
 authors = [{ name = "Kevin Leon" }]
 dependencies = [
+    "fastapi>=0.118,<1",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.6,<3",
+    "python-multipart>=0.0.20,<1",
 ]
 
 [build-system]
