@@ -69,19 +69,26 @@ def _reconstruct_public_url(request: Request) -> str:
     """Reconstruct the URL Twilio used when signing the request.
 
     Azure Container Apps terminates TLS at the ingress, so the FastAPI app
-    sees ``http://`` and an internal host. Twilio signed the *public* URL,
-    so we must honor ``X-Forwarded-Proto`` and ``X-Forwarded-Host`` if
-    present. Falls back to ``request.url`` otherwise.
+    sees ``http://`` internally. Twilio signed the *public* URL, so:
+
+    1. If ``X-Forwarded-Proto`` is set (Container Apps and most proxies set
+       this), use it for the scheme. The standard ``Host`` header (or the
+       optional ``X-Forwarded-Host``) supplies the public hostname — Container
+       Apps does NOT set ``X-Forwarded-Host``, so the regular ``Host`` header
+       is the source of truth for the public host.
+    2. Otherwise (local dev, direct HTTP) fall back to ``request.url``.
     """
     forwarded_proto = request.headers.get(_FORWARDED_PROTO_HEADER)
+    if not forwarded_proto:
+        return str(request.url)
+
     forwarded_host = request.headers.get(_FORWARDED_HOST_HEADER)
-    if forwarded_proto and forwarded_host:
-        # request.url.path already starts with '/'. Preserve query string.
-        path = request.url.path
-        query = request.url.query
-        suffix = f"?{query}" if query else ""
-        return f"{forwarded_proto}://{forwarded_host}{path}{suffix}"
-    return str(request.url)
+    host = forwarded_host or request.headers.get("host") or request.url.netloc
+
+    path = request.url.path
+    query = request.url.query
+    suffix = f"?{query}" if query else ""
+    return f"{forwarded_proto}://{host}{path}{suffix}"
 
 
 async def require_valid_twilio_signature(
@@ -108,21 +115,6 @@ async def require_valid_twilio_signature(
     auth_token = settings.twilio_auth_token.get_secret_value()
 
     if not is_valid_signature(auth_token, url, params, signature):
-        # Diagnostic line: never log the token. Uses an f-string so the
-        # rendered message lands in Container Apps stdout regardless of
-        # the formatter configuration.
-        import logging
-
-        proto = request.headers.get(_FORWARDED_PROTO_HEADER)
-        host = request.headers.get(_FORWARDED_HOST_HEADER)
-        keys = ",".join(sorted(params.keys()))
-        diag = (
-            f"signature_mismatch reconstructed_url={url} "
-            f"raw_url={request.url!s} "
-            f"x_forwarded_proto={proto} x_forwarded_host={host} "
-            f"param_keys={keys} sig_len={len(signature)}"
-        )
-        logging.getLogger("twilio_signing").warning(diag)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid Twilio signature",
